@@ -8,12 +8,20 @@
 #include "symm-key-client-v1.h"
 #include "dev/cc2420.h"
 #include "net/packetbuf.h"
+#include "sys/clock.h"
 
 #include <string.h>
 
+#define MEASURE_ENERGY 0
+
+#if MEASURE_ENERGY
+#include "sys/energest.h"
+#include "sys/rtimer.h"
+#endif
+
 #if ENABLE_CCM_APPLICATION & SEC_CLIENT | 1
 
-#define DEBUG_SEC 1
+#define DEBUG_SEC 0
 #if DEBUG_SEC
 #include <stdio.h>
 #define PRINTFSECKEY(...)
@@ -107,6 +115,7 @@ static void reset_sec_data(uint8_t index);
 static void copy_id_to_reserved(uint8_t index);
 static void store_reserved_sec_data(void);
 static void reset_failed_key_exchanges(void);
+static int  remove_least_active_device(void);
 static uint8_t key_exchange_protocol(void);
 static void send_key_exchange_packet(void);
 static void init_reply_message(void);
@@ -188,6 +197,7 @@ keymanagement_init(void)
 	key_exchange_state = S_KEY_EXCHANGE_IDLE;
 
 	/* Set reserved spot for temporary security data */
+	devices[RESERVED_INDEX].nonce_cntr = 1;
 	devices[RESERVED_INDEX].key_freshness = RESERVED;
 
 	/* Init nonces */
@@ -233,16 +243,13 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 	if(dest_index < 0) {
 		/* try to add designated device */
 		dest_index = add_device_id(toaddr);
-		if(dest_index < 0) {
-			/* No space for device */
-			//PRINTFSECKEY("No space to add device. tot:%x max:%d\n", amount_of_known_devices, MAX_DEVICES);
-			return NO_SPACE_FOR_DEVICE;
-		} else {
-			/* Request key for new device */
-			//PRINTFSECKEY("Requesting key for: %x at %d\n", toaddr->u8[15], amount_of_known_devices-1);
-			devices[dest_index].key_freshness = EXPIRED;
-			return KEY_REQUEST_TX;
-		}
+
+		/* Set key_freshness to expired to force request new key */
+		devices[dest_index].key_freshness = EXPIRED;
+		return KEY_REQUEST_TX;
+	} else if(dest_index == RESERVED_INDEX) {
+		/* Check if we are using the security port */
+		if(toport != UIP_HTONS(UDP_CLIENT_SEC_PORT)) return KEY_REQUEST_TX;
 	}
 
 	/* Check if the key is still valid */
@@ -291,14 +298,63 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 
 	PRINTFSECKEY("msg and nonce B: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
 
+#if MEASURE_ENERGY
+	/* Energy measurement  variables*/
+	struct energy_time {
+	unsigned short source;
+	long cpu;
+	long lpm;
+	long transmit;
+	long listen;
+	};
+	rtimer_clock_t t1, t2;
+	static struct energy_time diff;
+	static struct energy_time last;
+	/*************************/
+
+	PRINTFDEBUG("before: ");
+	for(i=0; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
+	PRINTFDEBUG("\n");
+
+	/* update all counters */
+	energest_flush();
+
+	last.cpu = energest_type_time(ENERGEST_TYPE_CPU);
+	last.lpm = energest_type_time(ENERGEST_TYPE_LPM);
+	last.transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT);
+	last.listen = energest_type_time(ENERGEST_TYPE_LISTEN);
+	t1=RTIMER_NOW();
+
+	/************** Start what we want to measure ********************/
+	//radio->on();
 	/* Encrypt message */
 	if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
+
+	/************** Finish what we want to measure ********************/
+	t2=RTIMER_NOW();
+	diff.cpu = energest_type_time(ENERGEST_TYPE_CPU) - last.cpu;
+	diff.lpm = energest_type_time(ENERGEST_TYPE_LPM) - last.lpm;
+	diff.transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT) - last.transmit;
+	diff.listen = energest_type_time(ENERGEST_TYPE_LISTEN) - last.listen;
+
+	PRINTFDEBUG("CPU=%lu, LPM=%lu, TRANSMIT=%lu, LISTEN=%lu, TICKS=%u\n", diff.cpu, diff.lpm, diff.transmit, diff.listen, t2-t1);
+
+	PRINTFDEBUG("after: ");
+	for(i=1; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
+	PRINTFDEBUG("\n");
+#else
+	/* Encrypt message */
+	if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
+#endif
 
 	/* Send packet over udp connection (Increment pointer by 1 to ignore length byte) */
 	uip_udp_packet_sendto(c, &tempbuf[1], (int)total_len, toaddr, toport);
 
 	/* Increment message counter if transmission successful!!!!!!!*/
 	devices[dest_index].msg_cntr++;
+
+	/* Update the current activity time */
+	devices[dest_index].time_last_activity = clock_seconds();
 
 	PRINTFSECKEY("msg and nonce A: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
 
@@ -369,6 +425,9 @@ keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data, uint
 	devices[src_index].remote_msg_cntr = src_msg_cntr;
 	devices[src_index].remote_nonce_cntr = src_nonce_cntr;
 
+	/* Update the current activity time */
+	devices[src_index].time_last_activity = clock_seconds();
+
 	PRINTFDEBUG("Decrypt OK\n");
 	return DECRYPT_OK;
 }
@@ -434,7 +493,6 @@ PROCESS_THREAD(keymanagement_process, ev, data)
 					state = S_IDLE;
 					break;
 			}
-
 		}
 
 		if(ev == tcpip_event) {
@@ -476,12 +534,15 @@ add_device_id(uip_ipaddr_t* curr_device_id)
 {
 	int index = DEVICE_NOT_FOUND;
 
-	if(amount_of_known_devices < MAX_DEVICES) {
-		/* Add device to known devices */
-		index = find_index_for_request(FREE_SPOT);
-		memcpy(&devices[index].remote_device_id.u8[0], &curr_device_id->u8[0], DEVICE_ID_SIZE);
-		amount_of_known_devices++;
+	/* Make room for new device */
+	if(amount_of_known_devices == MAX_DEVICES) {
+		index = remove_least_active_device();
 	}
+
+	/* Add device to known devices */
+	index = find_index_for_request(FREE_SPOT);
+	memcpy(&devices[index].remote_device_id.u8[0], &curr_device_id->u8[0], DEVICE_ID_SIZE);
+	amount_of_known_devices++;
 
 	return index;
 }
@@ -575,6 +636,7 @@ reset_sec_data(uint8_t index)
 	devices[index].msg_cntr = 0;
 	devices[index].remote_msg_cntr = 0;
 	devices[index].remote_nonce_cntr = 0;
+	devices[index].time_last_activity = 0;
 
 	if(index != RESERVED_INDEX) {
 		/* Set as free spot */
@@ -634,6 +696,30 @@ reset_failed_key_exchanges(void)
 			devices[i].key_freshness = EXPIRED;
 		}
 	}
+}
+
+/*-----------------------------------------------------------------------------------*/
+/**
+ *	Remove the security device that has been inactive the longest time					NIET AF!
+ */
+/*-----------------------------------------------------------------------------------*/
+static int
+remove_least_active_device(void)
+{
+	uint8_t i;
+	int least_active_index = 2;
+
+	/* Find the longest inactive security device */
+	for(i=2; i<MAX_DEVICES; i++) {
+		if(devices[least_active_index].time_last_activity > devices[i].time_last_activity) {
+			least_active_index = i;
+		}
+	}
+
+	/* Clear the longest inactive device */
+	remove_sec_device(least_active_index);
+
+	return least_active_index;
 }
 
 /*-----------------------------------------------------------------------------------*/
@@ -878,15 +964,14 @@ parse_packet(uint8_t *data, uint16_t len)
 				/* Check if we know the source */
 				device_index = search_device_id(&UIP_IP_BUF->srcipaddr,0);
 				if(device_index < 0) {
-					/* If not -> check if there still is free space for new devices and that the requesting node is NOT the edge_router */
-					if((amount_of_known_devices < MAX_DEVICES) && (device_index != EDGE_ROUTER_INDEX)) {
-						/* Copy requesting id */
-						memcpy(&devices[RESERVED_INDEX].remote_device_id.u8[0], &UIP_IP_BUF->srcipaddr.u8[0], DEVICE_ID_SIZE);
-					} else {
+					/* If not -> check if there still is free space for new devices */
+					if(amount_of_known_devices == MAX_DEVICES) {
 						/* Make room for new device */
-
-						return 0;
+						remove_least_active_device();
 					}
+					memcpy(&devices[RESERVED_INDEX].remote_device_id.u8[0], &UIP_IP_BUF->srcipaddr.u8[0], DEVICE_ID_SIZE);
+				} else if(device_index == EDGE_ROUTER_INDEX) {
+					return 0;
 				} else {
 					copy_id_to_reserved((uint8_t)device_index);
 				}

@@ -81,7 +81,7 @@ int cc2420_get_txpower(void);
 #if ENABLE_CCM_APPLICATION
 #define APP_MIC_LEN 		8
 #define MSG_NONCE_SIZE		2	/* Size in bytes */
-#define NONCE_SIZE			3
+#define NONCE_SIZE			3	/* Size of the nonce+nonce counter */
 
 //typedef uint16_t msgnonce_type_t;
 

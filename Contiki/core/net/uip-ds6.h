@@ -381,6 +381,7 @@ struct device_sec_data {
   uint8_t 	 		remote_nonce_cntr;
   uint8_t			key_freshness;
   uint8_t			session_key[16];
+  unsigned long		time_last_activity;
 };
 
 extern  struct device_sec_data devices[MAX_DEVICES];
