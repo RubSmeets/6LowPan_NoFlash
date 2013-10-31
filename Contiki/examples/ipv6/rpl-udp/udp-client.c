@@ -247,7 +247,7 @@ PROCESS_THREAD(udp_client_process, ev, data)
     else if (ev == sensors_event && data == &button_sensor) {
     	uint8_t data_ptr = 0;
     	char buf[100];
-    	uint8_t data_len = 97;
+    	uint8_t data_len = 30;
 
 #if MEASURE_ENERGY
 		rtimer_clock_t t1, t2;
@@ -423,7 +423,7 @@ PROCESS_THREAD(udp_client_process, ev, data)
 		/************** Start what we want to measure ********************/
 		//radio->on();
 		/* Encrypt message */
-		data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 17, &ipaddr_edge, UIP_HTONS(UDP_SERVER_PORT));
+		data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 0, &server_ipaddr, UIP_HTONS(UDP_SERVER_PORT));
 
 		/************** Finish what we want to measure ********************/
 
@@ -514,7 +514,7 @@ PROCESS_THREAD(udp_client_process, ev, data)
 
 #else
     	sprintf(&buf[data_ptr], "11111111111111222222222233333333334444444444555555555566666666667777777777888888888899999999990000000");
-    	data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 17, &ipaddr_edge, UIP_HTONS(UDP_SERVER_PORT));
+    	data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 0, &ipaddr_edge, UIP_HTONS(UDP_SERVER_PORT));
 #endif
     	PRINTF("result: %d\n", data_ptr);
 //    	PRINTF("Erase keys\n");

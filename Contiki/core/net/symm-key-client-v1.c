@@ -299,49 +299,109 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 	PRINTFSECKEY("msg and nonce B: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
 
 #if MEASURE_ENERGY
-	/* Energy measurement  variables*/
-	struct energy_time {
-	unsigned short source;
-	long cpu;
-	long lpm;
-	long transmit;
-	long listen;
-	};
-	rtimer_clock_t t1, t2;
-	static struct energy_time diff;
-	static struct energy_time last;
-	/*************************/
+		PRINTFDEBUG("before: ");
+		for(i=0; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
+		PRINTFDEBUG("\n");
 
-	PRINTFDEBUG("before: ");
-	for(i=0; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
-	PRINTFDEBUG("\n");
+		rtimer_clock_t t1;
+		//uint8_t i;
+    	rtimer_clock_t tbuf[50];
+		uint8_t index = 0;
+		uint8_t count[5];
+#define FINE_STEP	636 	/* nano seconds -> 48 times write 2-byte to variable in 1/32768Hz interval, gives 1/(32768Hz*48) */
+#define NORMAL_STEP	30518	/* nano seconds -> 1/32768Hz */
 
-	/* update all counters */
-	energest_flush();
+		uint32_t difference = 0;
+		uint32_t normalTime = 0;
+		uint32_t fineTime = 0;
+		uint32_t totalTime = 0;
+		/*************************/
 
-	last.cpu = energest_type_time(ENERGEST_TYPE_CPU);
-	last.lpm = energest_type_time(ENERGEST_TYPE_LPM);
-	last.transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT);
-	last.listen = energest_type_time(ENERGEST_TYPE_LISTEN);
-	t1=RTIMER_NOW();
 
-	/************** Start what we want to measure ********************/
-	//radio->on();
-	/* Encrypt message */
-	if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
+		t1=RTIMER_NOW();
+		/************** Start what we want to measure ********************/
+		//radio->on();
+		/* Encrypt message */
+		if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
+		/************** Finish what we want to measure ********************/
 
-	/************** Finish what we want to measure ********************/
-	t2=RTIMER_NOW();
-	diff.cpu = energest_type_time(ENERGEST_TYPE_CPU) - last.cpu;
-	diff.lpm = energest_type_time(ENERGEST_TYPE_LPM) - last.lpm;
-	diff.transmit = energest_type_time(ENERGEST_TYPE_TRANSMIT) - last.transmit;
-	diff.listen = energest_type_time(ENERGEST_TYPE_LISTEN) - last.listen;
+		tbuf[0] = TAR;
+		tbuf[1] = TAR;
+		tbuf[2] = TAR;
+		tbuf[3] = TAR;
+		tbuf[4] = TAR;
+		tbuf[5] = TAR;
+		tbuf[6] = TAR;
+		tbuf[7] = TAR;
+		tbuf[8] = TAR;
+		tbuf[9] = TAR;
+		tbuf[10] = TAR;
+		tbuf[11] = TAR;
+		tbuf[12] = TAR;
+		tbuf[13] = TAR;
+		tbuf[14] = TAR;
+		tbuf[15] = TAR;
+		tbuf[16] = TAR;
+		tbuf[17] = TAR;
+		tbuf[18] = TAR;
+		tbuf[19] = TAR;
+		tbuf[20] = TAR;
+		tbuf[21] = TAR;
+		tbuf[22] = TAR;
+		tbuf[23] = TAR;
+		tbuf[24] = TAR;
+		tbuf[25] = TAR;
+		tbuf[26] = TAR;
+		tbuf[27] = TAR;
+		tbuf[28] = TAR;
+		tbuf[29] = TAR;
+		tbuf[30] = TAR;
+		tbuf[31] = TAR;
+		tbuf[32] = TAR;
+		tbuf[33] = TAR;
+		tbuf[34] = TAR;
+		tbuf[35] = TAR;
+		tbuf[36] = TAR;
+		tbuf[37] = TAR;
+		tbuf[38] = TAR;
+		tbuf[39] = TAR;
+		tbuf[40] = TAR;
+		tbuf[41] = TAR;
+		tbuf[42] = TAR;
+		tbuf[43] = TAR;
+		tbuf[44] = TAR;
+		tbuf[45] = TAR;
+		tbuf[46] = TAR;
+		tbuf[47] = TAR;
+		tbuf[48] = TAR;
+		tbuf[49] = TAR;
 
-	PRINTFDEBUG("CPU=%lu, LPM=%lu, TRANSMIT=%lu, LISTEN=%lu, TICKS=%u\n", diff.cpu, diff.lpm, diff.transmit, diff.listen, t2-t1);
+		PRINTFDEBUG("t1 time: %u\n", t1);
+		for(i=0; i<(50-1); i++) {
+			if(tbuf[i] == tbuf[i+1]) {
+				count[index]++;
+			} else {
+				index++;
+			}
+		}
 
-	PRINTFDEBUG("after: ");
-	for(i=1; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
-	PRINTFDEBUG("\n");
+		difference = (tbuf[0]-1) - t1;
+		normalTime = difference*NORMAL_STEP;
+		fineTime = FINE_STEP*(48 - count[0]);
+		totalTime = normalTime + fineTime;
+
+		PRINTFDEBUG("Time in nano seconds: %lu\n", totalTime);
+
+		PRINTFDEBUG("counts: ");
+		for(i=0; i<5; i++) {
+			PRINTFDEBUG("%d ", count[i]);
+			count[i] = 0;
+		}
+		PRINTFDEBUG("\n");
+
+		PRINTFDEBUG("after: ");
+		for(i=1; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
+		PRINTFDEBUG("\n");
 #else
 	/* Encrypt message */
 	if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
