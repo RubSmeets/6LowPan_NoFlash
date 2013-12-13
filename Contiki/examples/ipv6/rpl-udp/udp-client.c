@@ -40,7 +40,7 @@
 #include "symm-key-client-v1.h"
 #include "dev/xmem.h"
 
-#define MEASURE_ENERGY 1
+#define MEASURE_ENERGY 0
 #define MEASURE_TIME   0
 
 #if MEASURE_ENERGY
@@ -97,7 +97,7 @@ tcpip_handler(void)
 static void
 send_packet(void *ptr)
 {
-  /*static int seq_id;
+/*  static int seq_id;
   char buf[MAX_PAYLOAD_LEN];
   uint8_t data_ptr = 0;
   uint8_t data_len = 26;
@@ -117,12 +117,13 @@ send_packet(void *ptr)
 
 #if ENABLE_CCM_APPLICATION & SEC_CLIENT
     data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 0, &server_ipaddr, UIP_HTONS(UDP_SERVER_PORT));
-    PRINTF("result: %d\n", data_ptr);
+    //PRINTF("result: %d\n", data_ptr);
 #else
     uip_udp_packet_sendto(client_conn, &buf[data_ptr], 26,
                             &server_ipaddr, UIP_HTONS(UDP_SERVER_PORT));
 #endif
-*///
+*/
+//
 //  result = cc2420_encrypt_ccm((uint8_t *)buf, 24);
 //  if(!result) PRINTF("Encryption failed: busy!\n");
 //  else {
@@ -191,7 +192,7 @@ set_global_address(void)
 #elif 1
 /* Mode 2 - 16 bits inline */
   //uip_ip6addr(&server_ipaddr, 0xaaaa, 0, 0, 0, 0, 0x00ff, 0xfe00, 1);
-   uip_ip6addr(&server_ipaddr, 0xaaaa, 0, 0, 0, 0xc30c, 0, 0, 2);
+   uip_ip6addr(&server_ipaddr, 0xaaaa, 0, 0, 0, 0xc30c, 0, 0, 159);
 #else
 /* Mode 3 - derived from server link-local (MAC) address */
   uip_ip6addr(&server_ipaddr, 0xaaaa, 0, 0, 0, 0x0250, 0xc2ff, 0xfea8, 0xcd1a); //redbee-econotag
@@ -247,7 +248,7 @@ PROCESS_THREAD(udp_client_process, ev, data)
     else if (ev == sensors_event && data == &button_sensor) {
     	uint8_t data_ptr = 0;
     	char buf[100];
-    	uint8_t data_len = 30;
+    	uint8_t data_len = 19;
 
 #if MEASURE_ENERGY
 		rtimer_clock_t t1, t2;
@@ -513,10 +514,14 @@ PROCESS_THREAD(udp_client_process, ev, data)
 		PRINTF("\n");
 
 #else
-    	sprintf(&buf[data_ptr], "11111111111111222222222233333333334444444444555555555566666666667777777777888888888899999999990000000");
-    	data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 0, &ipaddr_edge, UIP_HTONS(UDP_SERVER_PORT));
+    	sprintf(&buf[data_ptr], "Toggle light on/off");
+    	uint8_t i;
+    	PRINTF("Plain:  "); for(i=0; i<data_len; i++) PRINTF("%c", buf[i]); PRINTF("\n");
+
+    	data_ptr = keymanagement_send_encrypted_packet(client_conn, (uint8_t *)buf, &data_len, 0, &server_ipaddr, UIP_HTONS(UDP_SERVER_PORT));
 #endif
-    	PRINTF("result: %d\n", data_ptr);
+
+//    	PRINTF("result: %d\n", data_ptr);
 //    	PRINTF("Erase keys\n");
 //    	PRINTF("print\n");
 //    	PRINTF("Time %ld\n", (unsigned long)clock_time());

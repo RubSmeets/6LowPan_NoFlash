@@ -31,8 +31,8 @@ summary
 *~
 .DS_Store
 obj_*
-symbols.*
-Makefile.target
+# symbols.*
+# Makefile.target
 doc/html
 patches-*
 tools/tunslip6

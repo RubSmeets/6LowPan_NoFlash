@@ -42,7 +42,7 @@
 #include "dev/xmem.h"
 #include "symm-key-client-v1.h"
 
-#define MEASURE_ENERGY 1
+#define MEASURE_ENERGY 0
 #define MEASURE_TIME   0
 
 #if MEASURE_ENERGY
@@ -70,18 +70,19 @@ tcpip_handler(void)
 {
   char *appdata;
   uint8_t i, len;
+  short result;
 
   if(uip_newdata()) {
     appdata = (char *)uip_appdata;
     appdata[uip_datalen()] = 0;
     PRINTF("DATA recv '");
-    for(i=0; i<uip_datalen(); i++)PRINTF("%d: %.2x\n",i ,appdata[i]);
+    for(i=0; i<uip_datalen(); i++)PRINTF("%c",appdata[i]);
 	PRINTF("' from ");
     PRINTF("%d",
            UIP_IP_BUF->srcipaddr.u8[sizeof(UIP_IP_BUF->srcipaddr.u8) - 1]);
     PRINTF("\n");
 
-    PRINTF("Datalen: %d\n", uip_datalen());
+    //PRINTF("Datalen: %d\n", uip_datalen());
 
     len = uip_datalen() & 0xff;
 
@@ -346,12 +347,16 @@ tcpip_handler(void)
 		PRINTF("\n");
 
 #else
-    keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, (uint8_t *)appdata, &len, 0);
+	result = keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, (uint8_t *)appdata, &len, 0);
 #endif
 
-    PRINTF("DATA ");
-    for(i=0; i<uip_datalen(); i++)PRINTF("%c", appdata[i]);
+    PRINTF("Decrypt ");
+    for(i=3; i<len-11; i++)PRINTF("%c", appdata[i]);
     PRINTF("\n");
+
+    if(result == DECRYPT_OK) {
+    	P1OUT = (~P1OUT) & 0x01;
+    }
 
 #if SERVER_REPLY
     PRINTF("DATA sending reply\n");
@@ -447,6 +452,9 @@ PROCESS_THREAD(udp_server_process, ev, data)
   PRINT6ADDR(&server_conn->ripaddr);
   PRINTF(" local/remote port %u/%u\n", UIP_HTONS(server_conn->lport),
          UIP_HTONS(server_conn->rport));
+
+  /* Config pin P1.0 voor output */
+  P1DIR = 0x01;
 
   while(1) {
     PROCESS_YIELD();

@@ -77,32 +77,13 @@
 #define FOOTER1_CRC_OK      0x80
 #define FOOTER1_CORRELATION 0x7f
 
-#define MEASURE_ENERGY 0
-
-#if MEASURE_ENERGY
-#include "sys/rtimer.h"
-#endif
-/*
-#define DEBUG 0
-#if DEBUG
-#include <stdio.h>
-#define PRINTF(...) printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
-*/
-
 #define DEBUG_SEC 0
 #if DEBUG_SEC
 #include <stdio.h>
-uint8_t *buf_temp;
-uint8_t p;
 #define PRINTFSEC(...)
-#define PRINTFSECAPP(...)
-#define PRINTF(...) printf(__VA_ARGS__)
+#define PRINTF(...)
 #else
 #define PRINTFSEC(...) do {} while (0)
-#define PRINTFSECAPP(...)
 #define PRINTF(...)
 #endif
 
@@ -520,13 +501,6 @@ cc2420_prepare(const void *payload, unsigned short payload_len)
   total_len = payload_len + AUX_LEN;
 #endif
 
-#if DEBUG_SEC
-  uint8_t i;
-  uint8_t *payload_temp = (uint8_t *) payload;
-  PRINTFSEC("TX");
-  for(i=0; i<payload_len; i++) PRINTFSEC("%.2x",payload_temp[i]);
-  PRINTFSEC("\n");
-#endif
   CC2420_WRITE_FIFO_BUF(&total_len, 1);
   CC2420_WRITE_FIFO_BUF(payload, payload_len);
 #if CC2420_CONF_CHECKSUM
@@ -747,17 +721,6 @@ cc2420_read(void *buf, unsigned short bufsize)
   getrxbyte(&len);
   PRINTFSEC("len: %d\n", len);
 
-#if 0
-  getrxbyte(&len);
-  getrxdata(buf, len - AUX_LEN);
-  PRINTFSEC("R_B ");
-  PRINTFSEC("%.2X ", len);
-  for(p = 0; p < len-AUX_LEN; p++){PRINTFSEC("%.2x", buf_temp[p]);}
-  PRINTFSEC(" ");
-  for(p = 0; p < FOOTER_LEN; p++){PRINTFSEC("%.2x", footer[p]);}
-  PRINTFSEC("&&\n");
-#endif
-
 #if ENABLE_CBC_LINK_SECURITY
   /*
    * Check bufsize to know if we are waiting for ACK-packet
@@ -797,12 +760,11 @@ cc2420_read(void *buf, unsigned short bufsize)
    * Check if we are receiving an ACK-packet. They don't have
    * a MIC message appended.
    */
-  if(len != (ACK_PACKET_SIZE + AUX_LEN)) {
-	  getrxdata(buf, len - AUX_LEN - mic_len);
 
-	  uint8_t mic_code[mic_len];
-	  getrxdata(mic_code, mic_len);
-	  if(mic_code[mic_len-1] != 0x00)
+  getrxdata(buf, len - AUX_LEN);
+
+  if(len != (ACK_PACKET_SIZE + AUX_LEN)) {
+	  if(buf[len-AUX_LEN-1] != 0x00)
 	  {
 		  PRINTF("cc2420: FAILED TO AUTHENTICATE\n");
 		  flushrx();
@@ -810,9 +772,8 @@ cc2420_read(void *buf, unsigned short bufsize)
 		  return 0;
 	  }
 	  PRINTF("cc2420: SUCCESS\n");
-  } else {
-	  getrxdata(buf, len - AUX_LEN);
   }
+
 #else
   getrxdata(buf, len - AUX_LEN);
 #endif
@@ -821,16 +782,6 @@ cc2420_read(void *buf, unsigned short bufsize)
   getrxdata(&checksum, CHECKSUM_LEN);
 #endif /* CC2420_CONF_CHECKSUM */
   getrxdata(footer, FOOTER_LEN);
-
-#if DEBUG_SEC
-  buf_temp = (uint8_t *)buf;
-  PRINTFSEC("R_A ");
-  PRINTFSEC("%.2X ", len);
-  for(p = 0; p < len-AUX_LEN; p++){PRINTFSEC("%.2x", buf_temp[p]);}
-  PRINTFSEC(" ");
-  for(p = 0; p < FOOTER_LEN; p++){PRINTFSEC("%.2x", footer[p]);}
-  PRINTFSEC("\n");
-#endif
 
 #if CC2420_CONF_CHECKSUM
   if(checksum != crc16_data(buf, len - AUX_LEN, 0)) {
@@ -1041,7 +992,7 @@ cc2420_initLinkLayerSec(void)
 	setreg(CC2420_SECCTRL0, reg);
 	PRINTFSEC("cc2420: SEC0 reg: %.2X\n", reg);
 
-	PRINTFSEC("cc2420: Init CBC MAC complete\n");
+	PRINTF("cc2420: Init CBC MAC complete\n");
 }
 #endif
 /*---------------------------------------------------------------------------*/
@@ -1083,9 +1034,7 @@ setNonce(unsigned short RX_nTX, uint8_t *p_address_nonce, uint32_t *p_msg_ctr, u
 	nonce[15] = 0x01;					/* (only set on initiation) */
 
 	uint8_t i;
-	PRINTFSECAPP("READ NONCE: ");
-	for(i=0; i<16; i++) PRINTFSECAPP("%.2X ",nonce[i]);
-	PRINTFSECAPP("\n");
+	PRINTFSEC("READ NONCE: "); for(i=0; i<16; i++) PRINTFSEC("%.2X ",nonce[i]); PRINTFSEC("\n");
 
 	/* Write Tx Nonce */
 	if(RX_nTX) 	CC2420_WRITE_RAM_REV(nonce, CC2420RAM_RXNONCE, 16);
@@ -1108,7 +1057,7 @@ cc2420_decrypt_ccm(uint8_t *data, uint8_t *address_nonce, uint16_t *src_msg_cntr
 	/* Set security control reg 0 */
 	reg_old = getreg(CC2420_SECCTRL0);
 	reg = (CC2420_SECCTRL0_SEC_M_IDX << 2) | CC2420_SECCTRL0_RXKEYSEL1 | CC2420_SECCTRL0_RXFIFO_PROTECTION | CC2420_SECCTRL0_CCM;
-	PRINTFSECAPP("cc2420: Reg 0: %.2x\n",reg);
+	PRINTFSEC("cc2420: Reg 0: %.2x\n",reg);
 
 	/* Set associated data RX to 5 */
 	setAssociatedData(RX, adata_len);
@@ -1137,7 +1086,7 @@ cc2420_decrypt_ccm(uint8_t *data, uint8_t *address_nonce, uint16_t *src_msg_cntr
 
 	/* Restore security control reg 0 */
 	setreg(CC2420_SECCTRL0, reg_old);
-	PRINTFSECAPP("cc2420: Reg 0 restore: %.2x\n",reg_old);
+	PRINTFSEC("cc2420: Reg 0 restore: %.2x\n",reg_old);
 
 	/* Restore security control reg 1 */
 	setAssociatedData(RX, 0);
@@ -1165,7 +1114,7 @@ cc2420_encrypt_ccm(uint8_t *data, uint8_t *address_nonce, uint16_t *msg_cntr, ui
 	reg_old = getreg(CC2420_SECCTRL0);
 	reg = (CC2420_SECCTRL0_SEC_M_IDX << 2) | CC2420_SECCTRL0_RXFIFO_PROTECTION | CC2420_SECCTRL0_TXKEYSEL1 | CC2420_SECCTRL0_CCM;
 	setreg(CC2420_SECCTRL0, reg);
-	PRINTFSECAPP("cc2420: Reg 0: %.2x\n",reg);
+	PRINTFSEC("cc2420: Reg 0: %.2x\n",reg);
 
 	/* Set associated data TX to 5 */
 	setAssociatedData(TX, adata_len);
@@ -1179,113 +1128,6 @@ cc2420_encrypt_ccm(uint8_t *data, uint8_t *address_nonce, uint16_t *msg_cntr, ui
 
 	/* Set TXFIFO */
 	tot_len = *data_len + APP_MIC_LEN + AUX_LEN;
-
-#if MEASURE_ENERGY
-		rtimer_clock_t t1;
-		uint8_t i;
-    	rtimer_clock_t tbuf[50];
-		uint8_t index = 0;
-		uint8_t count[5];
-#define FINE_STEP	636 	/* nano seconds -> 48 times write 2-byte to variable in 1/32768Hz interval, gives 1/(32768Hz*48) */
-#define NORMAL_STEP	30518	/* nano seconds -> 1/32768Hz */
-
-		uint32_t difference = 0;
-		uint32_t normalTime = 0;
-		uint32_t fineTime = 0;
-		uint32_t totalTime = 0;
-		/*************************/
-
-
-		t1=RTIMER_NOW();
-		/************** Start what we want to measure ********************/
-		//radio->on();
-		/* Encrypt message */
-		CC2420_WRITE_FIFO_BUF(&tot_len, 1);
-		CC2420_WRITE_FIFO_BUF(data, *data_len);
-
-		/* Encrypt FIFO buffer */
-		strobe(CC2420_STXENC);
-		BUSYWAIT_UNTIL(!(status() & BV(CC2420_ENC_BUSY)), RTIMER_SECOND);
-
-		/* Read TXFIFO buffer */
-		CC2420_READ_RAM(data, CC2420RAM_TXFIFO, tot_len-1);
-		/************** Finish what we want to measure ********************/
-
-		tbuf[0] = TAR;
-		tbuf[1] = TAR;
-		tbuf[2] = TAR;
-		tbuf[3] = TAR;
-		tbuf[4] = TAR;
-		tbuf[5] = TAR;
-		tbuf[6] = TAR;
-		tbuf[7] = TAR;
-		tbuf[8] = TAR;
-		tbuf[9] = TAR;
-		tbuf[10] = TAR;
-		tbuf[11] = TAR;
-		tbuf[12] = TAR;
-		tbuf[13] = TAR;
-		tbuf[14] = TAR;
-		tbuf[15] = TAR;
-		tbuf[16] = TAR;
-		tbuf[17] = TAR;
-		tbuf[18] = TAR;
-		tbuf[19] = TAR;
-		tbuf[20] = TAR;
-		tbuf[21] = TAR;
-		tbuf[22] = TAR;
-		tbuf[23] = TAR;
-		tbuf[24] = TAR;
-		tbuf[25] = TAR;
-		tbuf[26] = TAR;
-		tbuf[27] = TAR;
-		tbuf[28] = TAR;
-		tbuf[29] = TAR;
-		tbuf[30] = TAR;
-		tbuf[31] = TAR;
-		tbuf[32] = TAR;
-		tbuf[33] = TAR;
-		tbuf[34] = TAR;
-		tbuf[35] = TAR;
-		tbuf[36] = TAR;
-		tbuf[37] = TAR;
-		tbuf[38] = TAR;
-		tbuf[39] = TAR;
-		tbuf[40] = TAR;
-		tbuf[41] = TAR;
-		tbuf[42] = TAR;
-		tbuf[43] = TAR;
-		tbuf[44] = TAR;
-		tbuf[45] = TAR;
-		tbuf[46] = TAR;
-		tbuf[47] = TAR;
-		tbuf[48] = TAR;
-		tbuf[49] = TAR;
-
-		PRINTF("t1 time: %u\n", t1);
-		for(i=0; i<(50-1); i++) {
-			if(tbuf[i] == tbuf[i+1]) {
-				count[index]++;
-			} else {
-				index++;
-			}
-		}
-
-		difference = (tbuf[0]-1) - t1;
-		normalTime = difference*NORMAL_STEP;
-		fineTime = FINE_STEP*(48 - count[0]);
-		totalTime = normalTime + fineTime;
-
-		PRINTF("Time in nano seconds: %lu\n", totalTime);
-
-		PRINTF("counts: ");
-		for(i=0; i<5; i++) {
-			PRINTF("%d ", count[i]);
-			count[i] = 0;
-		}
-		PRINTF("\n");
-
-#else
 	CC2420_WRITE_FIFO_BUF(&tot_len, 1);
 	CC2420_WRITE_FIFO_BUF(data, *data_len);
 
@@ -1295,11 +1137,10 @@ cc2420_encrypt_ccm(uint8_t *data, uint8_t *address_nonce, uint16_t *msg_cntr, ui
 
 	/* Read TXFIFO buffer */
 	CC2420_READ_RAM(data, CC2420RAM_TXFIFO, tot_len-1);
-#endif
 
 	/* Restore security control reg 0 */
 	setreg(CC2420_SECCTRL0, reg_old);
-	PRINTFSECAPP("cc2420: Reg 0 restore: %.2x\n",reg_old);
+	PRINTFSEC("cc2420: Reg 0 restore: %.2x\n",reg_old);
 
 	/* Restore security control reg 1 */
 	setAssociatedData(TX, 0);

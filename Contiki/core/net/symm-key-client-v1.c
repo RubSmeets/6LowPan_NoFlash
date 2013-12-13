@@ -12,23 +12,16 @@
 
 #include <string.h>
 
-#define MEASURE_ENERGY 0
-
-#if MEASURE_ENERGY
-#include "sys/energest.h"
-#include "sys/rtimer.h"
-#endif
-
 #if ENABLE_CCM_APPLICATION & SEC_CLIENT | 1
 
 #define DEBUG_SEC 0
 #if DEBUG_SEC
 #include <stdio.h>
-#define PRINTFSECKEY(...)
+#define PRINTF(...) printf(__VA_ARGS__)
 #define PRINTFDEBUG(...) printf(__VA_ARGS__)
 #else
-#define PRINTFSECKEY(...)
 #define PRINTFDEBUG(...)
+#define PRINTF(...)
 #endif
 
 #define UIP_IP_BUF   ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
@@ -124,7 +117,6 @@ static void verify_request_message(void);
 static void verify_reply_message(void);
 static short parse_packet(uint8_t *data, uint16_t len);
 static uint8_t parse_comm_reply_message(uint8_t *data);
-static void update_key_and_device_id(uint8_t *sessionkey);
 
 /*---------------------------------------------------------------------------*/
 PROCESS(keymanagement_process, "key management");
@@ -280,10 +272,6 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 	/* Get own ip address */
 	uip_ds6_select_src(&curr_ip, toaddr);
 
-	PRINTFSECKEY("ipv6: ");
-	for(i=1; i<16; i++) PRINTFSECKEY("%.2x ",curr_ip.u8[i]);
-	PRINTFSECKEY("\n");
-
 	/* Extend data packet with nonce */
 	for(i=0; i < MSG_NONCE_SIZE; i++) tempbuf[i] = (devices[dest_index].msg_cntr >> (((MSG_NONCE_SIZE-1)-i)*8)) & 0xff;
 	tempbuf[MSG_NONCE_SIZE] = devices[dest_index].nonce_cntr;
@@ -296,116 +284,10 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 
 	total_len = *data_len + NONCE_SIZE;
 
-	PRINTFSECKEY("msg and nonce B: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
+	PRINTFDEBUG("msg and nonce B: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
 
-#if MEASURE_ENERGY
-		PRINTFDEBUG("before: ");
-		for(i=0; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
-		PRINTFDEBUG("\n");
-
-		rtimer_clock_t t1;
-		//uint8_t i;
-    	rtimer_clock_t tbuf[50];
-		uint8_t index = 0;
-		uint8_t count[5];
-#define FINE_STEP	636 	/* nano seconds -> 48 times write 2-byte to variable in 1/32768Hz interval, gives 1/(32768Hz*48) */
-#define NORMAL_STEP	30518	/* nano seconds -> 1/32768Hz */
-
-		uint32_t difference = 0;
-		uint32_t normalTime = 0;
-		uint32_t fineTime = 0;
-		uint32_t totalTime = 0;
-		/*************************/
-
-
-		t1=RTIMER_NOW();
-		/************** Start what we want to measure ********************/
-		//radio->on();
-		/* Encrypt message */
-		if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
-		/************** Finish what we want to measure ********************/
-
-		tbuf[0] = TAR;
-		tbuf[1] = TAR;
-		tbuf[2] = TAR;
-		tbuf[3] = TAR;
-		tbuf[4] = TAR;
-		tbuf[5] = TAR;
-		tbuf[6] = TAR;
-		tbuf[7] = TAR;
-		tbuf[8] = TAR;
-		tbuf[9] = TAR;
-		tbuf[10] = TAR;
-		tbuf[11] = TAR;
-		tbuf[12] = TAR;
-		tbuf[13] = TAR;
-		tbuf[14] = TAR;
-		tbuf[15] = TAR;
-		tbuf[16] = TAR;
-		tbuf[17] = TAR;
-		tbuf[18] = TAR;
-		tbuf[19] = TAR;
-		tbuf[20] = TAR;
-		tbuf[21] = TAR;
-		tbuf[22] = TAR;
-		tbuf[23] = TAR;
-		tbuf[24] = TAR;
-		tbuf[25] = TAR;
-		tbuf[26] = TAR;
-		tbuf[27] = TAR;
-		tbuf[28] = TAR;
-		tbuf[29] = TAR;
-		tbuf[30] = TAR;
-		tbuf[31] = TAR;
-		tbuf[32] = TAR;
-		tbuf[33] = TAR;
-		tbuf[34] = TAR;
-		tbuf[35] = TAR;
-		tbuf[36] = TAR;
-		tbuf[37] = TAR;
-		tbuf[38] = TAR;
-		tbuf[39] = TAR;
-		tbuf[40] = TAR;
-		tbuf[41] = TAR;
-		tbuf[42] = TAR;
-		tbuf[43] = TAR;
-		tbuf[44] = TAR;
-		tbuf[45] = TAR;
-		tbuf[46] = TAR;
-		tbuf[47] = TAR;
-		tbuf[48] = TAR;
-		tbuf[49] = TAR;
-
-		PRINTFDEBUG("t1 time: %u\n", t1);
-		for(i=0; i<(50-1); i++) {
-			if(tbuf[i] == tbuf[i+1]) {
-				count[index]++;
-			} else {
-				index++;
-			}
-		}
-
-		difference = (tbuf[0]-1) - t1;
-		normalTime = difference*NORMAL_STEP;
-		fineTime = FINE_STEP*(48 - count[0]);
-		totalTime = normalTime + fineTime;
-
-		PRINTFDEBUG("Time in nano seconds: %lu\n", totalTime);
-
-		PRINTFDEBUG("counts: ");
-		for(i=0; i<5; i++) {
-			PRINTFDEBUG("%d ", count[i]);
-			count[i] = 0;
-		}
-		PRINTFDEBUG("\n");
-
-		PRINTFDEBUG("after: ");
-		for(i=1; i<total_len; i++) PRINTFDEBUG("%.2x",tempbuf[i]);
-		PRINTFDEBUG("\n");
-#else
 	/* Encrypt message */
 	if(!cc2420_encrypt_ccm(tempbuf, &curr_ip.u8[0], &devices[dest_index].msg_cntr, &devices[dest_index].nonce_cntr, &total_len, adata_len)) return ENCRYPT_FAILED;
-#endif
 
 	/* Send packet over udp connection (Increment pointer by 1 to ignore length byte) */
 	uip_udp_packet_sendto(c, &tempbuf[1], (int)total_len, toaddr, toport);
@@ -416,11 +298,9 @@ keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8
 	/* Update the current activity time */
 	devices[dest_index].time_last_activity = clock_seconds();
 
-	PRINTFSECKEY("msg and nonce A: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
-
-	PRINTFSECKEY("after: ");
-	for(i=1; i<*data_len; i++) PRINTFSECKEY("%.2x",tempbuf[i]);
-	PRINTFSECKEY("\n");
+	PRINTFDEBUG("msg and nonce A: %d, %d\n", devices[dest_index].msg_cntr, devices[dest_index].nonce_cntr);
+	PRINTFDEBUG("Cipher: "); for(i=1; i<total_len+1; i++) PRINTF("%c", tempbuf[i]); PRINTF("\n");
+	PRINTF("key: Encrypt OK\n");
 
 	return ENCRYPT_OK;
 }
@@ -458,11 +338,11 @@ keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data, uint
 	for(i=0; i < MSG_NONCE_SIZE; i++) src_msg_cntr |= ((uint16_t)data[i] << (((MSG_NONCE_SIZE-1)-i)*8));
 	src_nonce_cntr = data[MSG_NONCE_SIZE];
 
-	PRINTFSECKEY("dec_nonce %d dec_msgcntr %d\n", src_nonce_cntr, src_msg_cntr);
+	PRINTFDEBUG("dec_nonce %d dec_msgcntr %d\n", src_nonce_cntr, src_msg_cntr);
 
 	if(((src_msg_cntr <= devices[src_index].remote_msg_cntr) && (src_nonce_cntr <= devices[src_index].remote_nonce_cntr)) ||
 					(src_nonce_cntr < devices[src_index].remote_nonce_cntr)) {
-		PRINTFSECKEY("Replay message storeM: %d, recM: %d\n", devices[src_index].remote_msg_cntr, src_msg_cntr);
+		PRINTFDEBUG("Replay message storeM: %d, recM: %d\n", devices[src_index].remote_msg_cntr, src_msg_cntr);
 		return REPLAY_MESSAGE;
 	}
 
@@ -474,9 +354,8 @@ keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data, uint
 
 	/* Decrypt message */
 	if(!(cc2420_decrypt_ccm(data, &devices[src_index].remote_device_id.u8[0], &src_msg_cntr, &src_nonce_cntr, data_len, adata_len))) return DECRYPT_FAILED;
-	PRINTFSECKEY("dec_data: ");
-	for(i=0;i<*data_len;i++) PRINTFSECKEY("%02x ", data[i]);
-	PRINTFSECKEY("\n");
+
+	PRINTFDEBUG("dec_data: "); for(i=0;i<*data_len;i++) PRINTFDEBUG("%02x ", data[i]); PRINTFDEBUG("\n");
 
 	/* Check if authentication was successful */
 	if(data[*data_len-1] != AUTHENTICATION_SUCCES) return AUTHENTICATION_FAILED;
@@ -488,7 +367,7 @@ keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data, uint
 	/* Update the current activity time */
 	devices[src_index].time_last_activity = clock_seconds();
 
-	PRINTFDEBUG("Decrypt OK\n");
+	PRINTF("key: Decrypt OK\n");
 	return DECRYPT_OK;
 }
 
@@ -504,7 +383,7 @@ PROCESS_THREAD(keymanagement_process, ev, data)
 
 	PROCESS_BEGIN();
 
-	PRINTFSECKEY("keymanagement_process: started\n");
+	PRINTF("key: keymanagement_process: started\n");
 
 	/*
 	 * new connection with remote host at port 0
@@ -513,8 +392,8 @@ PROCESS_THREAD(keymanagement_process, ev, data)
 	 */
 	sec_conn = udp_new(NULL, 0, NULL);
 	if(sec_conn == NULL) {
-	  PRINTFSECKEY("No UDP conn, exiting proc!\n");
-	  PROCESS_EXIT();
+		PRINTF("key: No UDP conn, exiting proc!\n");
+		PROCESS_EXIT();
 	}
 	udp_bind(sec_conn, UIP_HTONS(UDP_CLIENT_SEC_PORT));
 
@@ -616,9 +495,7 @@ static void
 set_session_key_of_index(int index)
 {
 	uint8_t i;
-	PRINTFSECKEY("key: ");
-	for(i=0;i<16;i++) PRINTFSECKEY("%02x ", devices[index].session_key[i]);
-	PRINTFSECKEY("\n");
+	PRINTFDEBUG("key: "); for(i=0;i<16;i++) PRINTFDEBUG("%02x ", devices[index].session_key[i]); PRINTFDEBUG("\n");
 	CC2420_WRITE_RAM_REV(&devices[index].session_key[0], CC2420RAM_KEY1, SEC_KEY_SIZE);
 }
 
@@ -653,19 +530,6 @@ static void
 update_nonce(uint8_t index)
 {
 	devices[index].key_freshness = FRESH;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Updates the session key and device id in the flash memory
- *
- *	@param current session-key															NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-update_key_and_device_id(uint8_t *sessionkey)
-{
-
 }
 
 /*-----------------------------------------------------------------------------------*/
@@ -804,7 +668,7 @@ key_exchange_protocol(void)
 	/* Is there anything to send? */
 	if(key_exchange_state == S_KEY_EXCHANGE_SUCCES) {
 		/* Key exchange is finished */
-		PRINTFDEBUG("key: Succes\n");
+		PRINTF("key: Success\n");
 
 		/* Store security data */
 		store_reserved_sec_data();
@@ -812,7 +676,7 @@ key_exchange_protocol(void)
 		return 0;
 
 	} else if(key_exchange_state == S_KEY_EXCHANGE_FAILED) {
-		PRINTFDEBUG("key: Failed\n");
+		PRINTF("key: Failed\n");
 		/* Increment fails of requested device */
 		int device_index = search_device_id(&devices[RESERVED_INDEX].remote_device_id,2);
 		if(!(device_index < 0)) {
@@ -834,11 +698,6 @@ key_exchange_protocol(void)
 
 	/* Create and send protocol message */
 	send_key_exchange_packet();
-
-	uint8_t i;
-	PRINTFSECKEY("key buf: ");
-	for(i=0; i<tot_len; i++) PRINTFSECKEY("%.2x",keypacketbuf[i]);
-	PRINTFSECKEY("\n");
 
 	/* Increment send tries */
 	if(send_tries > MAX_WAIT_TIME_SEND) {
@@ -1021,6 +880,7 @@ parse_packet(uint8_t *data, uint16_t len)
 	switch(key_exchange_state) {
 		case S_KEY_EXCHANGE_IDLE:
 			if(data[0] == S_INIT_REQUEST && len == INIT_REQUEST_MSG_SIZE) {
+				PRINTF("key: Got key-excahnge request\n");
 				/* Check if we know the source */
 				device_index = search_device_id(&UIP_IP_BUF->srcipaddr,0);
 				if(device_index < 0) {
@@ -1044,6 +904,7 @@ parse_packet(uint8_t *data, uint16_t len)
 
 		case S_INIT_REQUEST:
 			if(data[0] == S_INIT_REPLY && len == INIT_REPLY_MSG_SIZE && send_tries > 0) {
+				PRINTF("key: Got request reply\n");
 				/* Check the remote device id */
 				if(memcmp(&UIP_IP_BUF->srcipaddr.u8[0], &devices[RESERVED_INDEX].remote_device_id.u8[0], DEVICE_ID_SIZE) == 0) {
 					/* Get the remote nonce */
@@ -1059,6 +920,7 @@ parse_packet(uint8_t *data, uint16_t len)
 		case S_INIT_REPLY:	   /* | request_nonce(3) | */
 			if(data[3] == S_COMM_REPLY && len == COMM_REPLY_MSG_SIZE) {
 				if(keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, data, &temp_data_len, ADATA_KEYEXCHANGE) == DECRYPT_OK) {
+					PRINTF("key: Got reply from server\n");
 					/* Parse packet */
 					if(parse_comm_reply_message(data)) {
 						/* Send verify message */
@@ -1073,6 +935,7 @@ parse_packet(uint8_t *data, uint16_t len)
 		case S_COMM_REQUEST:   /* | remote_decryption_nonce(3) | msg_type(1) | request_nonce(3) | sessionkey(16) | id remote(16) | MIC(8) | */
 			if(data[3] == S_COMM_REPLY && len == COMM_REPLY_MSG_SIZE) {
 				if(keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, data, &temp_data_len, ADATA_KEYEXCHANGE) == DECRYPT_OK) {
+					PRINTF("key: Got reply from server\n");
 					/* Parse packet */
 					if(parse_comm_reply_message(data)) {
 						/* Wait for Verify message */
@@ -1087,6 +950,7 @@ parse_packet(uint8_t *data, uint16_t len)
 		case S_COMM_REPLY:
 			if(data[3] == S_VERIFY_REQUEST && len == VERIFY_REQUEST_MSG_SIZE && send_tries > 0) {
 				if(keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, data, &temp_data_len, ADATA_KEYEXCHANGE) == DECRYPT_OK) {
+					PRINTF("key: Got verification request\n");
 					/* Store verify nonce */
 					memcpy(&remote_verify_nonce[0], &data[4], 3);
 					/* reply to verify message */
@@ -1101,7 +965,7 @@ parse_packet(uint8_t *data, uint16_t len)
 			if(data[3] == S_VERIFY_REPLY && len == VERIFY_REPLY_MSG_SIZE) {
 				if(keymanagement_decrypt_packet(&UIP_IP_BUF->srcipaddr, data, &temp_data_len, ADATA_KEYEXCHANGE) == DECRYPT_OK) {
 					/* Decrement verify request nonce */
-					PRINTFDEBUG("Got reply\n");
+					PRINTF("key: Got reply verification\n");
 					get_decrement_verify_nonce(temp_verify_nonce);
 					PRINTFDEBUG("temp: %02x %02x %02x\n", temp_verify_nonce[0], temp_verify_nonce[1], temp_verify_nonce[2]);
 					PRINTFDEBUG("rece: %02x %02x %02x\n", data[4], data[5], data[6]);
@@ -1150,22 +1014,17 @@ parse_comm_reply_message(uint8_t *data) {
 	set16(temp_request_nonce, 0, request_nonce);
 	temp_request_nonce[2] = request_nonce_cntr;
 
-	uint8_t i;
-	PRINTFSECKEY("comm_nonce: ");
-	for(i=0; i<3; i++) PRINTFSECKEY("%02x ", temp_request_nonce[i]);
-	PRINTFSECKEY("\n");
-
 	/* Check request nonce */
 	if(memcmp(&data[REQUEST_NONCE_OFFSET], &temp_request_nonce[0], 3) != 0) {
 		/* Doesn't belong with current request - replay message */
-		PRINTFSECKEY("wrong req_nonce\n");
+		PRINTF("key: wrong req_nonce\n");
 		return 0;
 	}
 
 	/* Check device id */
 	if(memcmp(&data[ID_OFFSET], &curr_ip.u8[0], DEVICE_ID_SIZE) != 0) {
 		/* Wrong id */
-		PRINTFSECKEY("wrong id\n");
+		PRINTF("key: wrong id\n");
 		return 0;
 	}
 
@@ -1176,7 +1035,7 @@ parse_comm_reply_message(uint8_t *data) {
 	/* Increment request nonce */
 	increment_request_nonce();
 
-	PRINTFSECKEY("Parse ok\n");
+	PRINTF("key: Parse ok\n");
 
 	return 1;
 }

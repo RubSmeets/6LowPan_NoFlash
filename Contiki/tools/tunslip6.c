@@ -286,8 +286,10 @@ serial_to_tun(FILE *inslip, int outfd)
     		  int b;
     		  char network_key[16] = {5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5};
     		  //char sensor_key[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+    		  char sensor_key[16] = {6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6};
     		  char address[16] = {0xaa,0xaa,0x00,0x00,0x00,0x00,0x00,0x00,0xc3,0x0c,0x00,0x00,0x00,0x00,0x00,0x01};
-    		  char sensor_key[16] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
+    		  //char sensor_key[16] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
+    		  //char sensor_key[16] = {7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7};
 
     		  slip_send(slipfd, 'A');
     		  slip_send(slipfd, 'R');
@@ -311,8 +313,8 @@ serial_to_tun(FILE *inslip, int outfd)
     	  	int b;
 			char address[16] = {0xaa,0xaa,0x00,0x00,0x00,0x00,0x00,0x00,0xc3,0x0c,0x00,0x00,0x00,0x00,0x00,0x01};
 			char session_key[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
-			char sensor_key[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-			char sensor_key2[16] = {2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2};
+			char sensor_key[16] = {6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6};
+			char sensor_key2[16] = {7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7};
 
 			if(uip.inbuf[1] == 'K') {
 				/* Security network key request */
