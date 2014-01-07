@@ -5,9 +5,9 @@
  *      Author: crea
  */
 #include "net/sec-arp-client.h"
+#include "net/sec_data.h"
 #include "net/rime/rimeaddr.h"
 #include "net/uip-ds6.h"
-#include "net/uip.h"
 #include "dev/slip.h"
 #include "dev/cc2420.h"
 #include "dev/xmem.h"
@@ -26,7 +26,6 @@
 
 #define LINKLAYER_OFFSET	2
 #define APPLAYER_OFFSET		16
-#define SEC_DATA_SIZE 		33
 #define KEY_SIZE			16
 
 struct device_sec_data devices[MAX_DEVICES];

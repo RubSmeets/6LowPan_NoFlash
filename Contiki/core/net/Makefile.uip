@@ -33,4 +33,5 @@ uip_arp.c					\
 uiplib.c					\
 sec-arp-client.c			\
 sec-arp-server.c			\
-symm-key-client-v1.c
+symm-key-client-v1.c		\
+sec_data.c

@@ -46,15 +46,23 @@
 #define NETSTACK_CONF_RADIO   cc2420_driver
 #define NETSTACK_CONF_FRAMER  framer_802154
 
-#define MAX_DEVICES 			5
-//extern  uint8_t  network_key[16];
-
-#define ENABLE_CBC_LINK_SECURITY 1
-#define ENABLE_CCM_LINK_SECURITY 0
-#define ENABLE_CTR_LINK_SECURITY 0
-#define ENABLE_CCM_APPLICATION	 1
+/* Global security defines */
+#if SEC_NODE_ENABLED
 #define SEC_CLIENT				 1
+#else
+#define SEC_CLIENT				 0
+#endif
+
+#if SEC_BORDER_ENABLED
+#define SEC_SERVER				 1
+#else
 #define SEC_SERVER				 0
+#endif
+
+#if SEC_NODE_ENABLED | SEC_BORDER_ENABLED
+#define ENABLE_CBC_LINK_SECURITY 1
+#define ENABLE_CCM_APPLICATION	 1
+#endif
 
 /* Specify a minimum packet size for 6lowpan compression to be
    enabled. This is needed for ContikiMAC, which needs packets to be

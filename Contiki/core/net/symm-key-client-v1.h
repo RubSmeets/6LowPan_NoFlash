@@ -42,10 +42,6 @@
 
 #include "contiki-net.h"
 
-#define MAX_MESSAGE_COUNT 	0xFFFFFFFF
-#define MAX_NONCE_COUNT		0xFF
-#define MAX_MESSAGE_SIZE	50
-
 void keymanagement_init(void);
 short keymanagement_send_encrypted_packet(struct uip_udp_conn *c, uint8_t *data, uint8_t *data_len, unsigned short adata_len, uip_ipaddr_t *toaddr, uint16_t toport);
 short keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data, uint8_t *data_len, unsigned short adata_len);
@@ -57,8 +53,6 @@ short keymanagement_decrypt_packet(uip_ipaddr_t *remote_device_id, uint8_t *data
 //#define KEY_REQUEST_TX 		4
 //#define NO_SPACE_FOR_DEVICE 5
 //#define KEY_MANAGE_BUSY 	6
-
-typedef uint8_t keyExNonce_type_t;
 
 typedef enum {
   /**< The key management layer encryption was OK. */
@@ -93,19 +87,5 @@ typedef enum {
 
 } keymanagement_flags_type_t;
 
-typedef enum {
-	/**< The session key is still valid and fresh */
-	FRESH 			= 0x03,
-	/**< The session key has expired */
-	EXPIRED 		= 0x01,
-	/**< The nonce has to be updated in flash */
-	UPDATE_NONCE	= 0x02,
-	/**< Free spot in device list */
-	FREE_SPOT		= 0x00,
-	/**< Reserved spot in device list */
-	RESERVED		= 0x04,
-	/**< Key exchange failed before */
-	FAILED			= 0x05,
-} keyfreshness_flags_type_t;
 
 #endif /* KEYMANAGEMENT_V1_H_ */

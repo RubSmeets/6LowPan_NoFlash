@@ -6,6 +6,7 @@
  */
 
 #include "symm-key-client-v1.h"
+#include "net/sec_data.h"
 #include "dev/cc2420.h"
 #include "net/packetbuf.h"
 #include "sys/clock.h"
@@ -28,18 +29,7 @@
 #define UDP_CLIENT_SEC_PORT 5446
 #define UDP_SERVER_SEC_PORT 5444
 
-//#define MAX_DEVICES 			3
-#define DEVICE_NOT_FOUND 		-1
 #define AUTHENTICATION_SUCCES	0x00
-
-/* Variable sizes */
-#define SEC_DATA_SIZE 			32
-#define DEVICE_ID_SIZE			16
-#define SEC_KEY_SIZE			16
-#define KEY_NONCE_SIZE			4
-#define NONCE_CNTR_SIZE			1
-#define LENGTH_SIZE				1	/* To ensure that the data array stays inbounds */
-#define ADATA_KEYEXCHANGE		1
 
 /* Register offsets */
 #define SEC_KEY_OFFSET			16
@@ -67,14 +57,6 @@
 #define S_KEY_EXCHANGE_FAILED	7
 #define S_KEY_EXCHANGE_IDLE 	8
 
-/* Different protocol message sizes */
-#define INIT_REQUEST_MSG_SIZE	1	/* msg_type(1) */
-#define INIT_REPLY_MSG_SIZE		4	/* msg_type(1) | req_nonce(3) */
-#define COMM_REQUEST_MSG_SIZE	39	/* msg_type(1) | device_id(16) | remote_device_id(16) | req_nonce(3) | remote_req_nonce(3) */
-#define COMM_REPLY_MSG_SIZE		47	/* encryption_nonce(3) | msg_type(1) | encrypted_req_nonce(3) | encrypted_sessionkey(16) | encrypted_remote_device_id(16) | MIC(8) */
-#define VERIFY_REQUEST_MSG_SIZE	28	/* encryption_nonce(3) | msg_type(1) | encrypted_verify_nonce(3) | padding (12) | MIC(8) */
-#define VERIFY_REPLY_MSG_SIZE	28	/* encryption_nonce(3) | msg_type(1) | encrypted_remote_verify_nonce(3) | padding (12) | MIC(8) */
-
 /* Global variables */
 struct device_sec_data devices[MAX_DEVICES];
 static short state;
@@ -98,17 +80,7 @@ static uint8_t remote_verify_nonce[3];
 static uint8_t update_key_exchange_nonce;
 
 /* Functions used in key management layer */
-static int  search_device_id(uip_ipaddr_t* curr_device_id, uint8_t search_offset);
-static int  add_device_id(uip_ipaddr_t* curr_device_id);
 static void set_session_key_of_index(int index);
-static uint8_t find_index_for_request(keyfreshness_flags_type_t search_option);
-static void update_nonce(uint8_t index);
-static void remove_sec_device(uint8_t index);
-static void reset_sec_data(uint8_t index);
-static void copy_id_to_reserved(uint8_t index);
-static void store_reserved_sec_data(void);
-static void reset_failed_key_exchanges(void);
-static int  remove_least_active_device(void);
 static uint8_t key_exchange_protocol(void);
 static void send_key_exchange_packet(void);
 static void init_reply_message(void);
@@ -116,28 +88,16 @@ static void comm_request_message(void);
 static void verify_request_message(void);
 static void verify_reply_message(void);
 static short parse_packet(uint8_t *data, uint16_t len);
-static uint8_t parse_comm_reply_message(uint8_t *data);
+
 
 /*---------------------------------------------------------------------------*/
 PROCESS(keymanagement_process, "key management");
 /*---------------------------------------------------------------------------*/
 
-/*---------------------------------------------------------------------------*/
-static uint16_t
-get16(uint8_t *buffer, int pos)
-{
-  return (uint16_t)buffer[pos] << 8 | buffer[pos + 1];
-}
-/*---------------------------------------------------------------------------*/
-static void
-set16(uint8_t *buffer, int pos, uint16_t value)
-{
-  buffer[pos++] = value >> 8;
-  buffer[pos++] = value & 0xff;
-}
-/*---------------------------------------------------------------------------*/
-static void
-increment_request_nonce(void) {
+/*-----------------------------------------------------------------------------------*/
+/* Supporting functions																 */
+/*-----------------------------------------------------------------------------------*/
+void increment_request_nonce(void) {
 	if(request_nonce == 0xffff) {
 		request_nonce_cntr++;
 		request_nonce = 0;
@@ -147,9 +107,8 @@ increment_request_nonce(void) {
 		request_nonce++;
 	}
 }
-/*---------------------------------------------------------------------------*/
-static void
-increment_verify_nonce(void) {
+/*-----------------------------------------------------------------------------------*/
+void increment_verify_nonce(void) {
 	if(verify_nonce == 0xffff) {
 		verify_nonce_cntr++;
 		verify_nonce = 0;
@@ -159,9 +118,8 @@ increment_verify_nonce(void) {
 		verify_nonce++;
 	}
 }
-/*---------------------------------------------------------------------------*/
-static void
-get_decrement_verify_nonce(uint8_t *temp_verify_nonce) {
+/*-----------------------------------------------------------------------------------*/
+void get_decrement_verify_nonce(uint8_t *temp_verify_nonce) {
 	uint16_t temp_nonce = verify_nonce;
 
 	if(temp_nonce == 0) {
@@ -174,7 +132,7 @@ get_decrement_verify_nonce(uint8_t *temp_verify_nonce) {
 
 	set16(temp_verify_nonce, 0, temp_nonce);
 }
-/*---------------------------------------------------------------------------*/
+/*-----------------------------------------------------------------------------------*/
 
 /*-----------------------------------------------------------------------------------*/
 /**
@@ -445,49 +403,6 @@ PROCESS_THREAD(keymanagement_process, ev, data)
 
 /*-----------------------------------------------------------------------------------*/
 /**
- * Search the given IP address																NIET GETEST!
- */
-/*-----------------------------------------------------------------------------------*/
-static int
-search_device_id(uip_ipaddr_t *curr_device_id, uint8_t search_offset)
-{
-	int index = DEVICE_NOT_FOUND;
-	uint8_t i;
-
-	for(i = search_offset; i < MAX_DEVICES; i++) {
-		if(memcmp(&curr_device_id->u8[0], &devices[i].remote_device_id.u8[0], DEVICE_ID_SIZE) == 0) {
-			index = i;
-			break;
-		}
-	}
-	return index;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- * add the given device id to secured communication											NIET GETEST!
- */
-/*-----------------------------------------------------------------------------------*/
-static int
-add_device_id(uip_ipaddr_t* curr_device_id)
-{
-	int index = DEVICE_NOT_FOUND;
-
-	/* Make room for new device */
-	if(amount_of_known_devices == MAX_DEVICES) {
-		index = remove_least_active_device();
-	}
-
-	/* Add device to known devices */
-	index = find_index_for_request(FREE_SPOT);
-	memcpy(&devices[index].remote_device_id.u8[0], &curr_device_id->u8[0], DEVICE_ID_SIZE);
-	amount_of_known_devices++;
-
-	return index;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
  * Get the security data from flash for device at a given index (index)						NIET GETEST!
  */
 /*-----------------------------------------------------------------------------------*/
@@ -497,153 +412,6 @@ set_session_key_of_index(int index)
 	uint8_t i;
 	PRINTFDEBUG("key: "); for(i=0;i<16;i++) PRINTFDEBUG("%02x ", devices[index].session_key[i]); PRINTFDEBUG("\n");
 	CC2420_WRITE_RAM_REV(&devices[index].session_key[0], CC2420RAM_KEY1, SEC_KEY_SIZE);
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- * Search for the index of device that wants to request a key or has
- * to update one.																			NIET GETEST!
- */
-/*-----------------------------------------------------------------------------------*/
-static uint8_t
-find_index_for_request(keyfreshness_flags_type_t search_option)
-{
-	uint8_t i;
-	for(i=0; i<MAX_DEVICES; i++) {
-		if(devices[i].key_freshness == search_option) {
-			return i;
-		}
-	}
-
-	if((search_option == UPDATE_NONCE) && (update_key_exchange_nonce == 1)) return MAX_DEVICES+1;
-	return MAX_DEVICES;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- * Update nonce writes the new nonce of devices[index] to flash memory
- *
- * @param index of device																NIET GETEST!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-update_nonce(uint8_t index)
-{
-	devices[index].key_freshness = FRESH;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Removes a security device from stored devices
- *
- *	@param current device_index															NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-remove_sec_device(uint8_t index)
-{
-	reset_sec_data(index);
-	amount_of_known_devices--;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Reset security data from device at position "index"
- *
- *	@param current device_index															NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-reset_sec_data(uint8_t index)
-{
-	devices[index].nonce_cntr = 1;
-	devices[index].msg_cntr = 0;
-	devices[index].remote_msg_cntr = 0;
-	devices[index].remote_nonce_cntr = 0;
-	devices[index].time_last_activity = 0;
-
-	if(index != RESERVED_INDEX) {
-		/* Set as free spot */
-		devices[index].key_freshness = FREE_SPOT;
-		/* Reset device id */
-		memset(&devices[index].remote_device_id.u8[0], 0, DEVICE_ID_SIZE);
-	}
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Copy the device id to the reserved spot for key-exchange
- *
- *	@param current device_index															NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-copy_id_to_reserved(uint8_t index)
-{
-	memcpy(&devices[RESERVED_INDEX].remote_device_id.u8[0], &devices[index].remote_device_id.u8[0], DEVICE_ID_SIZE);
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Store the temporary security data in a free spot if not found						NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-store_reserved_sec_data(void)
-{
-	int index;
-
-	index = search_device_id(&devices[RESERVED_INDEX].remote_device_id,2);
-	if(index < 0) {
-		index = find_index_for_request(FREE_SPOT);
-	}
-
-	/* store security device data */
-	devices[index] = devices[RESERVED_INDEX];
-	devices[index].key_freshness = FRESH;
-
-	/* Reset RESERVED id */
-	memset(&devices[RESERVED_INDEX].remote_device_id.u8[0], 0, DEVICE_ID_SIZE);
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Reset the failed key-exchanges to expired											NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static void
-reset_failed_key_exchanges(void)
-{
-	uint8_t i;
-	for(i=2; i<MAX_DEVICES; i++) {
-		if(devices[i].key_freshness == FAILED) {
-			devices[i].key_freshness = EXPIRED;
-		}
-	}
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Remove the security device that has been inactive the longest time					NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-static int
-remove_least_active_device(void)
-{
-	uint8_t i;
-	int least_active_index = 2;
-
-	/* Find the longest inactive security device */
-	for(i=2; i<MAX_DEVICES; i++) {
-		if(devices[least_active_index].time_last_activity > devices[i].time_last_activity) {
-			least_active_index = i;
-		}
-	}
-
-	/* Clear the longest inactive device */
-	remove_sec_device(least_active_index);
-
-	return least_active_index;
 }
 
 /*-----------------------------------------------------------------------------------*/
@@ -985,57 +753,6 @@ parse_packet(uint8_t *data, uint16_t len)
 		default:
 			break;
 	}
-
-	return 1;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/**
- *	Help function to parse the content of communication reply message.
- *
- *	@param pointer to data
- *	@param pointer to current device id
- *	@return failed/successful																NIET AF!
- */
-/*-----------------------------------------------------------------------------------*/
-#define ID_OFFSET				23
-#define SESSIONKEY_OFFSET		7
-#define REQUEST_NONCE_OFFSET	4
-
-static uint8_t
-parse_comm_reply_message(uint8_t *data) {
-	uint8_t temp_request_nonce[3];
-	uip_ipaddr_t curr_ip;
-
-	/* Get own ip address */
-	uip_ds6_select_src(&curr_ip, &devices[RESERVED_INDEX].remote_device_id);
-
-	/* Assemble request nonce */
-	set16(temp_request_nonce, 0, request_nonce);
-	temp_request_nonce[2] = request_nonce_cntr;
-
-	/* Check request nonce */
-	if(memcmp(&data[REQUEST_NONCE_OFFSET], &temp_request_nonce[0], 3) != 0) {
-		/* Doesn't belong with current request - replay message */
-		PRINTF("key: wrong req_nonce\n");
-		return 0;
-	}
-
-	/* Check device id */
-	if(memcmp(&data[ID_OFFSET], &curr_ip.u8[0], DEVICE_ID_SIZE) != 0) {
-		/* Wrong id */
-		PRINTF("key: wrong id\n");
-		return 0;
-	}
-
-	/* Store security data */
-	reset_sec_data(RESERVED_INDEX);
-	memcpy(&devices[RESERVED_INDEX].session_key[0], &data[SESSIONKEY_OFFSET], SEC_KEY_SIZE);
-
-	/* Increment request nonce */
-	increment_request_nonce();
-
-	PRINTF("key: Parse ok\n");
 
 	return 1;
 }

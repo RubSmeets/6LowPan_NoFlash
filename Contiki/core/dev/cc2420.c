@@ -700,6 +700,7 @@ cc2420_read(void *buf, unsigned short bufsize)
 {
   uint8_t footer[2];
   uint8_t len;
+  uint8_t *pbuf;
 #if CC2420_CONF_CHECKSUM
   uint16_t checksum;
 #endif /* CC2420_CONF_CHECKSUM */
@@ -762,9 +763,9 @@ cc2420_read(void *buf, unsigned short bufsize)
    */
 
   getrxdata(buf, len - AUX_LEN);
-
+  pbuf = buf;
   if(len != (ACK_PACKET_SIZE + AUX_LEN)) {
-	  if(buf[len-AUX_LEN-1] != 0x00)
+	  if(pbuf[len-(AUX_LEN-1)] != 0x00)
 	  {
 		  PRINTF("cc2420: FAILED TO AUTHENTICATE\n");
 		  flushrx();
